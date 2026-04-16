@@ -36,20 +36,29 @@ const sendTelegramNotification = async (entries) => {
   const BOT_TOKEN = 'bot7770829732:AAE7OMJeNJQ-Qmf6gmpqK9_xXLfWCiQyC00';
   const CHAT_ID = '7405133698';
   
-  const message = `🚨 [출입 신청 발생]\n\n` + 
-    entries.map(e => `📍 차종: ${e.car_type}\n🚗 번호: ${e.car_number}\n📝 목적: ${e.purpose}`).join('\n\n') +
-    `\n\n관리자 확인: https://car-system-l5m1.onrender.com/`;
+  const message = `🔔 [신규 차량 신청 알림]\n\n` + 
+      entries.map(e => `🚗 번호: ${e.car_number}\n📍 차종: ${e.car_type}`).join('\n\n') +
+      `\n\n확인: https://car-system-l5m1.onrender.com/`;
 
-  try {
-    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: CHAT_ID, text: message }),
-    });
-  } catch (err) {
-    console.error("텔레그램 전송 실패", err);
-  }
-};
+    console.log("텔레그램 발송 시작..."); 
+
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: CHAT_ID, text: message }),
+      });
+
+      const result = await res.json();
+      console.log("텔레그램 서버 응답:", result); // ✅ F12 콘솔에서 이 부분을 확인하세요!
+      
+      if (!result.ok) {
+        console.error("텔레그램 발송 실패 사유:", result.description);
+      }
+    } catch (err) {
+      console.error("텔레그램 네트워크 오류:", err);
+    }
+  };
   
   useEffect(() => {
     fetchCars();
