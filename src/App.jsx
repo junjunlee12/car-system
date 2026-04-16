@@ -31,6 +31,26 @@ const fetchCars = async () => {
     }
   };
 
+  // ✅ 여기에 sendTelegramNotification 함수를 넣으세요!
+const sendTelegramNotification = async (entries) => {
+  const BOT_TOKEN = '교수님의_봇_토큰';
+  const CHAT_ID = '교수님의_ID';
+  
+  const message = `🚨 [출입 신청 발생]\n\n` + 
+    entries.map(e => `📍 차종: ${e.car_type}\n🚗 번호: ${e.car_number}\n📝 목적: ${e.purpose}`).join('\n\n') +
+    `\n\n관리자 확인: https://car-system-l5m1.onrender.com/`;
+
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: CHAT_ID, text: message }),
+    });
+  } catch (err) {
+    console.error("텔레그램 전송 실패", err);
+  }
+};
+  
   useEffect(() => {
     fetchCars();
     
