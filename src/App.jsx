@@ -193,7 +193,7 @@ const handleExcelUpload = (e) => {
       <div className="flex justify-center items-center bg-gray-100 min-h-screen p-4 text-center">
         <div className="max-w-md w-full h-[850px] max-h-[95vh] bg-white flex flex-col items-center shadow-2xl relative rounded-[40px] overflow-hidden border-[8px] border-white font-nanumRound">
           <div className="mt-12 w-full flex justify-center px-12">
-            <img src="/src/assets/logo.png" alt="Logo" className="h-8 w-auto object-contain" />
+            <img src="/logo.png" alt="Logo" className="h-8 w-auto object-contain" />
           </div>
           <div className="mt-10">
             <h1 className="text-[24px] font-black text-gray-900 leading-tight mb-1">제3매립장(1단계)</h1>
@@ -209,7 +209,7 @@ const handleExcelUpload = (e) => {
             </form>
           </div>
           <div className="mt-auto w-full flex justify-center pb-8">
-            <img src="/src/assets/character.png" alt="Character" className="w-[70%] max-h-52 object-contain" />
+            <img src="/character.png" alt="Character" className="w-[70%] max-h-52 object-contain" />
           </div>
         </div>
       </div>
@@ -222,7 +222,7 @@ const handleExcelUpload = (e) => {
         
         <header 
           className="relative h-28 shrink-0 flex flex-col justify-between p-5 overflow-hidden bg-white"
-          style={{ backgroundImage: "url('/src/assets/main.png')", backgroundSize: 'cover', backgroundPosition: 'left center', backgroundRepeat: 'no-repeat' }}
+          style={{ backgroundImage: "url('/main.png')", backgroundSize: 'cover', backgroundPosition: 'left center', backgroundRepeat: 'no-repeat' }}
         >
           <div className="relative z-10 flex justify-end mt-1">
             <h1 className="text-[16px] font-black text-[#2563eb] whitespace-nowrap tracking-tighter drop-shadow-[0_1px_1px_rgba(255,255,255,0.8)]">
