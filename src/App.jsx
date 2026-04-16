@@ -33,8 +33,8 @@ const fetchCars = async () => {
 
   // ✅ 여기에 sendTelegramNotification 함수를 넣으세요!
 const sendTelegramNotification = async (entries) => {
-  const BOT_TOKEN = '교수님의_봇_토큰';
-  const CHAT_ID = '교수님의_ID';
+  const BOT_TOKEN = 'bot7770829732:AAE7OMJeNJQ-Qmf6gmpqK9_xXLfWCiQyC00';
+  const CHAT_ID = '7405133698';
   
   const message = `🚨 [출입 신청 발생]\n\n` + 
     entries.map(e => `📍 차종: ${e.car_type}\n🚗 번호: ${e.car_number}\n📝 목적: ${e.purpose}`).join('\n\n') +
