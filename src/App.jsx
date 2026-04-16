@@ -33,7 +33,7 @@ const fetchCars = async () => {
 
   // ✅ 여기에 sendTelegramNotification 함수를 넣으세요!
 const sendTelegramNotification = async (entries) => {
-  const BOT_TOKEN = 'bot7770829732:AAE7OMJeNJQ-Qmf6gmpqK9_xXLfWCiQyC00';
+  const BOT_TOKEN = '7770829732:AAE7OMJeNJQ-Qmf6gmpqK9_xXLfWCiQyC00';
   const CHAT_ID = '7405133698';
   
   const message = `🔔 [신규 차량 신청 알림]\n\n` + 
