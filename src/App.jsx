@@ -307,11 +307,16 @@ const handleExcelUpload = (e) => {
                   const inserts = newEntries.filter(e => e.car_number).map(e => ({ ...e, status: 'pending', applicant: user.username }));
                   const { error } = await supabase.from('vehicles').insert(inserts);
                   if (error) throw error;
-                  alert("신청 완료!"); fetchCars(); setActiveTab('status');
-                } catch (e) { alert("저장 실패"); }
+
+// 2. ✅ 여기서 텔레그램 함수를 호출합니다!
+      await sendTelegramNotification(inserts);
+
+                  alert("신청이 완료되었습니다. 관리자에게 알림이 전송되었습니다."); fetchCars(); setActiveTab('status');
+                } catch (err) { alert("신청 중 오류가 발생했습니다."); }
               }} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg">신청서 제출</button>
             </div>
           )}
+
 
           {activeTab === 'admin' && (
             <div className="space-y-4 text-left">
