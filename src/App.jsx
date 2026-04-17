@@ -15,7 +15,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [allCars, setAllCars] = useState([]);
   
-  // [개선] 탭 이동 및 새로고침 시에도 입력 데이터 보존을 위해 초기값을 서랍(localStorage)에서 가져옴
+  // 탭 이동 및 새로고침 시에도 입력 데이터 보존
   const [newEntries, setNewEntries] = useState(() => {
     const saved = localStorage.getItem('car_entries_draft');
     return saved ? JSON.parse(saved) : [{ car_type: '승용차', car_number: '', start_date: '', end_date: '', purpose: '' }];
@@ -29,7 +29,7 @@ export default function App() {
     if (savedUser) setUser(JSON.parse(savedUser));
   }, []);
 
-  // 2. 입력 내용 실시간 저장: newEntries가 바뀔 때마다 서랍에 저장
+  // 2. 입력 내용 실시간 저장
   useEffect(() => {
     localStorage.setItem('car_entries_draft', JSON.stringify(newEntries));
   }, [newEntries]);
@@ -61,7 +61,7 @@ export default function App() {
     const CHAT_ID = '7405133698';
     const message = `🔔 [신규 차량 신청 알림]\n\n` + 
       entries.map(e => `🚗 번호: ${e.car_number}\n📍 차종: ${e.car_type}`).join('\n\n') +
-      `\n\n관리자 확인: https://car-system-l5m1.onrender.com/`;
+      `\n\n확인: https://car-system-l5m1.onrender.com/`;
 
     try {
       await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -85,7 +85,7 @@ export default function App() {
       if (error || !data) {
         if(loginInput.username === 'admin' && loginInput.password === '1234') {
           const adminUser = { username: '관리자', role: 'admin' };
-          localStorage.setItem('car_user', JSON.stringify(adminUser)); // 자동 로그인용 저장
+          localStorage.setItem('car_user', JSON.stringify(adminUser));
           setUser(adminUser);
           setActiveTab('status');
           return;
@@ -93,7 +93,7 @@ export default function App() {
         alert("로그인 정보가 올바르지 않습니다.");
         return;
       }
-      localStorage.setItem('car_user', JSON.stringify(data)); // 자동 로그인용 저장
+      localStorage.setItem('car_user', JSON.stringify(data));
       setUser(data);
       setActiveTab(data.role === 'applicant' ? 'apply' : 'status');
     } catch (error) { alert("로그인 중 오류 발생"); }
@@ -101,7 +101,7 @@ export default function App() {
 
   const handleLogout = () => {
     if (window.confirm("로그아웃 하시겠습니까?")) {
-      localStorage.removeItem('car_user'); // 자동 로그인 해제
+      localStorage.removeItem('car_user');
       setUser(null);
     }
   };
@@ -125,14 +125,60 @@ export default function App() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   };
 
+  // ⭐ [수정된 부분] 상시 판정 로직을 AND에서 OR로 변경
   const formatAccessPeriod = (start, end) => {
     if (!start || !end) return '상시';
+    
+    const dStart = new Date(start);
+    const dEnd = new Date(end);
+    const alwaysStartLimit = new Date('2026-01-01');
+    const alwaysEndLimit = new Date('2050-12-31');
+
+    // 시작일이 2026년 이전이거나(OR) 종료일이 2050년 이후이면 '상시'로 표시
+    if (dStart < alwaysStartLimit || dEnd >= alwaysEndLimit) {
+      return '상시';
+    }
+
     const s = start.split('T')[0];
     const e = end.split('T')[0];
-    return e >= '2050-12-31' ? `${s} ~ 상시` : `${s} ~ ${e}`;
+    return `${s} ~ ${e}`;
   };
 
-  const handleExcelUpload = (e) => { /* ... 기존 엑셀 업로드 로직 동일 ... */ };
+  const handleExcelUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawData = XLSX.utils.sheet_to_json(ws);
+
+        const uploadData = rawData.map((row) => {
+          const startVal = row.start_date || row['시작일'] || row['출입시작'] || row['시작'];
+          const endVal = row.end_date || row['종료일'] || row['출입종료'] || row['종료'];
+
+          return {
+            car_type: row.car_type || row['차종'] || '',
+            car_number: row.car_number || row['차량번호'] || row['번호'] || '',
+            start_date: toSqlDate(startVal),
+            end_date: toSqlDate(endVal),
+            purpose: row.purpose || row['출입목적'] || row['목적'] || '',
+            status: 'approved',
+            applicant: user.username
+          };
+        });
+
+        const { error } = await supabase.from('vehicles').insert(uploadData);
+        if (error) throw error;
+
+        alert(`총 ${rawData.length}건이 업로드되었습니다.`);
+        fetchCars();
+      } catch (err) { alert(`엑셀 처리 중 오류: ${err.message}`); }
+    };
+    reader.readAsBinaryString(file);
+  };
 
   // --- [UI 렌더링] ---
   if (!user) {
@@ -232,13 +278,12 @@ export default function App() {
 
                   alert("신청 완료! 관리자에게 알림이 전송되었습니다.");
                   
-                  // 신청 성공 시 데이터 초기화 및 서랍 비우기
                   localStorage.removeItem('car_entries_draft');
                   setNewEntries([{ car_type: '승용차', car_number: '', start_date: '', end_date: '', purpose: '' }]);
                   
                   fetchCars(); 
                   setActiveTab('status');
-                  sendTelegramNotification(inserts); // 백그라운드 전송
+                  sendTelegramNotification(inserts);
                 } catch (err) { alert("저장 실패"); }
               }} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition-all">신청서 제출</button>
             </div>
