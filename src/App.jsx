@@ -15,6 +15,7 @@ export default function App() {
   const [allCars, setAllCars] = useState([]);
   const [selectedCar, setSelectedCar] = useState(null);
   
+  // 탭 이동 및 새로고침 시에도 입력 데이터 보존
   const [newEntries, setNewEntries] = useState(() => {
     const saved = localStorage.getItem('car_entries_draft');
     return saved ? JSON.parse(saved) : [{ car_type: '승용차', car_number: '', start_date: '', end_date: '', purpose: '', applicant_name: '' }];
@@ -31,9 +32,11 @@ export default function App() {
 
   useEffect(() => {
     fetchCars();
+    // 실시간 구독
     const channel = supabase.channel('schema-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, fetchCars)
       .subscribe();
+    // 5분마다 자동 새로고침
     const refreshInterval = setInterval(fetchCars, 300000); 
     return () => { supabase.removeChannel(channel); clearInterval(refreshInterval); };
   }, []);
@@ -93,6 +96,14 @@ export default function App() {
     } catch (error) { alert("삭제 실패"); }
   };
 
+  const toSqlDate = (val) => {
+    if (!val) return null;
+    let d = val instanceof Date ? val : new Date(String(val).replaceAll('.', '-').trim());
+    if (isNaN(d.getTime())) return null;
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+
   const formatAccessPeriod = (start, end) => {
     if (!start || !end) return '상시';
     const dStart = new Date(start);
@@ -125,8 +136,8 @@ export default function App() {
         const uploadData = rawData.map((row) => ({
           car_type: row.car_type || row['차종'] || '',
           car_number: row.car_number || row['차량번호'] || row['번호'] || '',
-          start_date: row.start_date || row['시작일'] ? new Date(row.start_date || row['시작일']).toISOString() : null,
-          end_date: row.end_date || row['종료일'] ? new Date(row.end_date || row['종료일']).toISOString() : null,
+          start_date: toSqlDate(row.start_date || row['시작일'] || row['시작']),
+          end_date: toSqlDate(row.end_date || row['종료일'] || row['종료']),
           purpose: row.purpose || row['출입목적'] || '',
           applicant_name: row.applicant_name || row['신청자'] || row['성명'] || '',
           status: 'approved', applicant: user.username
@@ -173,7 +184,7 @@ export default function App() {
                 <div><p className="text-[10px] font-black text-gray-400">출입 목적</p><p className="text-lg font-bold text-gray-700">{selectedCar.purpose || '없음'}</p></div>
                 <div><p className="text-[10px] font-black text-gray-400">출입 기간</p><p className="text-lg font-bold text-gray-700">{formatAccessPeriod(selectedCar.start_date, selectedCar.end_date)}</p></div>
               </div>
-              <button onClick={() => setSelectedCar(null)} className="w-full mt-8 bg-gray-900 text-white py-4 rounded-2xl font-black">확인</button>
+              <button onClick={() => setSelectedCar(null)} className="w-full mt-8 bg-gray-900 text-white py-4 rounded-2xl font-black active:scale-95 transition-all">확인</button>
             </div>
           </div>
         )}
@@ -200,17 +211,18 @@ export default function App() {
                   .filter(car => searchQuery === '' || car.car_number.endsWith(searchQuery))
                   .map((car, idx) => (
                   <div key={car.id} onClick={() => setSelectedCar(car)} className="bg-white p-4 rounded-2xl border border-white shadow-sm flex flex-col gap-2 animate-fadeIn active:scale-[0.98] transition-all cursor-pointer">
-                    {/* 상단: 순번 + 차량번호 */}
+                    {/* 상단: 파란 동그라미 번호 + 차량번호 */}
                     <div className="flex items-center gap-2">
-                      <p className="text-[19px] font-black text-gray-900 tracking-tight">
-                        <span className="text-blue-600 mr-1">{idx + 1}.</span> {car.car_number}
-                      </p>
+                      <div className="flex-none w-6 h-6 bg-[#2563eb] rounded-full flex items-center justify-center font-black text-white text-[10px]">
+                        {idx + 1}
+                      </div>
+                      <p className="text-[19px] font-black text-gray-900 tracking-tight">{car.car_number}</p>
                     </div>
                     
                     {/* 구분선 */}
-                    <div className="border-t border-gray-50"></div>
+                    <div className="border-t border-gray-100"></div>
                     
-                    {/* 하단: 기간 및 삭제 버튼 */}
+                    {/* 하단: 기간 및 삭제버튼 */}
                     <div className="flex justify-between items-center">
                       <div className="text-[11px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg">
                         {formatAccessPeriod(car.start_date, car.end_date)}
@@ -270,10 +282,10 @@ export default function App() {
               {allCars.filter(c => c.status === 'pending').map(car => (
                 <div key={car.id} className="bg-white p-5 rounded-[30px] shadow-sm border border-gray-100 space-y-3 animate-fadeIn">
                   <div className="flex items-end gap-2 border-b border-gray-50 pb-2"><p className="text-xl font-black text-gray-900 leading-none">{car.car_number}</p><p className="text-xs font-bold text-gray-400 mb-0.5">{car.car_type}</p></div>
-                  <div className="text-[12px] font-black text-gray-700">신청자: {car.applicant_name} | 목적: {car.purpose}</div>
+                  <div className="text-[12px] font-black text-gray-700">신청자: {car.applicant_name} | 사유: {car.purpose}</div>
                   <div className="flex gap-2 pt-1">
-                    <button onClick={async () => { await supabase.from('vehicles').update({status: 'approved'}).eq('id', car.id); fetchCars(); }} className="flex-1 bg-gray-900 text-white py-4 rounded-2xl font-black text-xs">승인</button>
-                    <button onClick={async () => { await supabase.from('vehicles').update({status: 'rejected'}).eq('id', car.id); fetchCars(); }} className="flex-1 bg-gray-50 text-gray-400 py-4 rounded-2xl font-black text-xs">반려</button>
+                    <button onClick={async () => { await supabase.from('vehicles').update({status: 'approved'}).eq('id', car.id); fetchCars(); }} className="flex-1 bg-gray-900 text-white py-4 rounded-2xl font-black text-xs active:scale-95 transition-all">승인</button>
+                    <button onClick={async () => { await supabase.from('vehicles').update({status: 'rejected'}).eq('id', car.id); fetchCars(); }} className="flex-1 bg-gray-50 text-gray-400 py-4 rounded-2xl font-black text-xs active:scale-95 transition-all">반려</button>
                   </div>
                 </div>
               ))}
@@ -282,9 +294,9 @@ export default function App() {
         </main>
 
         <nav className="fixed bottom-0 max-w-md w-full bg-white/95 backdrop-blur-xl border-t px-4 py-4 flex justify-around items-center rounded-t-[40px] shadow-2xl z-50">
-          <button onClick={() => setActiveTab('status')} className={`flex flex-col items-center gap-1 ${activeTab === 'status' ? "text-blue-500" : "text-gray-200"}`}><span className="text-xl">🔍</span><span className="text-[9px] font-black">현황 조회</span></button>
-          <button onClick={() => setActiveTab('apply')} className={`flex flex-col items-center gap-1 ${activeTab === 'apply' ? "text-blue-500" : "text-gray-200"}`}><span className="text-xl">📝</span><span className="text-[9px] font-black">차량 등록</span></button>
-          {user.role === 'admin' && <button onClick={() => setActiveTab('admin')} className={`flex flex-col items-center gap-1 ${activeTab === 'admin' ? "text-blue-500" : "text-gray-200"}`}><span className="text-xl">⚙️</span><span className="text-[9px] font-black">관리자</span></button>}
+          <button onClick={() => setActiveTab('status')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'status' ? "text-blue-500 scale-110" : "text-gray-200"}`}><span className="text-xl">🔍</span><span className="text-[9px] font-black">현황 조회</span></button>
+          <button onClick={() => setActiveTab('apply')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'apply' ? "text-blue-500 scale-110" : "text-gray-200"}`}><span className="text-xl">📝</span><span className="text-[9px] font-black">차량 등록</span></button>
+          {user.role === 'admin' && <button onClick={() => setActiveTab('admin')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'admin' ? "text-blue-500 scale-110" : "text-gray-200"}`}><span className="text-xl">⚙️</span><span className="text-[9px] font-black">관리자</span></button>}
         </nav>
       </div>
       <style>{`
