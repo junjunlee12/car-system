@@ -13,7 +13,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('status');
   const [searchQuery, setSearchQuery] = useState('');
   const [allCars, setAllCars] = useState([]);
-  const [selectedCar, setSelectedCar] = useState(null); // 상세 보기용 모달 상태
+  const [selectedCar, setSelectedCar] = useState(null);
   
   const [newEntries, setNewEntries] = useState(() => {
     const saved = localStorage.getItem('car_entries_draft');
@@ -29,25 +29,14 @@ export default function App() {
     localStorage.setItem('car_entries_draft', JSON.stringify(newEntries));
   }, [newEntries]);
 
-  // 자동 새로고침 및 데이터 로딩
   useEffect(() => {
     fetchCars();
-    
-    // 실시간 구독 (Supabase Realtime)
     const channel = supabase.channel('schema-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles' }, fetchCars)
       .subscribe();
-
-    // [Item 4] 5분마다 자동 새로고침 타이머 (300,000ms)
-    const refreshInterval = setInterval(() => {
-      console.log("자동 새로고침 실행 중...");
-      fetchCars();
-    }, 300000);
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(refreshInterval);
-    };
+    // 5분마다 자동 새로고침 (네트워크 불안정 대비)
+    const refreshInterval = setInterval(fetchCars, 300000); 
+    return () => { supabase.removeChannel(channel); clearInterval(refreshInterval); };
   }, []);
 
   const fetchCars = async () => {
@@ -62,7 +51,7 @@ export default function App() {
     const BOT_TOKEN = '7770829732:AAE7OMJeNJQ-Qmf6gmpqK9_xXLfWCiQyC00';
     const CHAT_ID = '7405133698';
     const message = `🔔 [신규 차량 신청 알림]\n\n` + 
-      entries.map(e => `🚗 번호: ${e.car_number}\n👤 신청자: ${e.applicant_name}`).join('\n\n') +
+      entries.map(e => `🚗 번호: ${e.car_number}\n👤 신청자: ${e.applicant_name || '미기입'}`).join('\n\n') +
       `\n\n확인: https://car-system-l5m1.onrender.com/`;
     try {
       await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -105,6 +94,14 @@ export default function App() {
     } catch (error) { alert("삭제 실패"); }
   };
 
+  const toSqlDate = (val) => {
+    if (!val) return null;
+    let d = val instanceof Date ? val : new Date(String(val).replaceAll('.', '-').trim());
+    if (isNaN(d.getTime())) return null;
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+
   const formatAccessPeriod = (start, end) => {
     if (!start || !end) return '상시';
     const dStart = new Date(start);
@@ -115,15 +112,50 @@ export default function App() {
     return `${start.split('T')[0]} ~ ${end.split('T')[0]}`;
   };
 
-  // [Item 1] 오늘 날짜 기준으로 만료 여부 확인
   const isExpired = (endDate) => {
     if (!endDate) return false;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const end = new Date(endDate);
     const alwaysLimit = new Date('2050-12-31');
-    if (end >= alwaysLimit) return false; // 상시 차량은 만료 없음
+    if (end >= alwaysLimit) return false;
     return end < today;
+  };
+
+  // 엑셀 업로드 로직 (신청자 성명 매핑 추가)
+  const handleExcelUpload = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rawData = XLSX.utils.sheet_to_json(ws);
+        
+        const uploadData = rawData.map((row) => {
+          const startVal = row.start_date || row['시작일'] || row['출입시작'];
+          const endVal = row.end_date || row['종료일'] || row['출입종료'];
+          // 신청자 성명을 찾기 위한 다양한 시도
+          const applicantVal = row.applicant_name || row['신청자'] || row['성명'] || row['이름'];
+
+          return {
+            car_type: row.car_type || row['차종'] || '',
+            car_number: row.car_number || row['차량번호'] || row['번호'] || '',
+            start_date: toSqlDate(startVal),
+            end_date: toSqlDate(endVal),
+            purpose: row.purpose || row['출입목적'] || '',
+            applicant_name: applicantVal || '',
+            status: 'approved', applicant: user.username
+          };
+        });
+        
+        const { error } = await supabase.from('vehicles').insert(uploadData);
+        if (error) throw error;
+        alert(`총 ${rawData.length}건 업로드 완료.`); fetchCars();
+      } catch (err) { alert(`오류: ${err.message}`); }
+    };
+    reader.readAsBinaryString(file);
   };
 
   if (!user) {
@@ -150,18 +182,18 @@ export default function App() {
     <div className="flex justify-center bg-gray-200 min-h-screen font-nanumRound">
       <div className="max-w-md w-full h-screen bg-gray-50 relative flex flex-col shadow-2xl overflow-hidden">
         
-        {/* 상세 모달 창 [Item 2] */}
+        {/* 상세 모달창 */}
         {selectedCar && (
           <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setSelectedCar(null)}>
             <div className="bg-white w-full rounded-[40px] p-8 shadow-2xl animate-fadeIn" onClick={e => e.stopPropagation()}>
-              <h3 className="text-2xl font-black text-blue-600 mb-6 border-b pb-4">차량 상세 정보</h3>
-              <div className="space-y-5">
-                <div><p className="text-xs font-black text-gray-400 uppercase">차량 번호</p><p className="text-xl font-black text-gray-800">{selectedCar.car_number}</p></div>
-                <div><p className="text-xs font-black text-gray-400 uppercase">출입 목적</p><p className="text-lg font-bold text-gray-700">{selectedCar.purpose || '없음'}</p></div>
-                <div><p className="text-xs font-black text-gray-400 uppercase">출입 기간</p><p className="text-lg font-bold text-gray-700">{formatAccessPeriod(selectedCar.start_date, selectedCar.end_date)}</p></div>
-                <div><p className="text-xs font-black text-gray-400 uppercase">신청자</p><p className="text-lg font-bold text-gray-700">{selectedCar.applicant_name || '미기입'}</p></div>
+              <h3 className="text-xl font-black text-blue-600 mb-6 border-b pb-4">상세 정보</h3>
+              <div className="space-y-4">
+                <div><p className="text-[10px] font-black text-gray-400 uppercase">차량 번호</p><p className="text-lg font-black text-gray-800">{selectedCar.car_number}</p></div>
+                <div><p className="text-[10px] font-black text-gray-400 uppercase">신청자 성명</p><p className="text-lg font-bold text-gray-700">{selectedCar.applicant_name || '미기입'}</p></div>
+                <div><p className="text-[10px] font-black text-gray-400 uppercase">출입 목적</p><p className="text-lg font-bold text-gray-700">{selectedCar.purpose || '없음'}</p></div>
+                <div><p className="text-[10px] font-black text-gray-400 uppercase">출입 기간</p><p className="text-lg font-bold text-gray-700">{formatAccessPeriod(selectedCar.start_date, selectedCar.end_date)}</p></div>
               </div>
-              <button onClick={() => setSelectedCar(null)} className="w-full mt-8 bg-gray-900 text-white py-4 rounded-2xl font-black">닫기</button>
+              <button onClick={() => setSelectedCar(null)} className="w-full mt-8 bg-gray-900 text-white py-4 rounded-2xl font-black active:scale-95 transition-all">확인</button>
             </div>
           </div>
         )}
@@ -181,27 +213,28 @@ export default function App() {
                 <input type="text" maxLength="4" placeholder="차량번호 뒤 4자리 검색" className="w-full h-12 p-5 pl-12 bg-white border-none rounded-2xl shadow-sm text-base font-black outline-none ring-2 ring-gray-50 focus:ring-blue-400" onChange={(e) => setSearchQuery(e.target.value)} />
                 <span className="absolute left-5 top-3.5 text-lg opacity-20">🔍</span>
               </div>
-              <div className="grid gap-2">
+              <div className="grid gap-3">
                 {allCars
                   .filter(car => car.status === 'approved')
-                  .filter(car => !isExpired(car.end_date)) // [Item 1] 기한 만료 자동 제외
+                  .filter(car => !isExpired(car.end_date)) // 오늘 기준 만료 차량 자동 필터링
                   .filter(car => searchQuery === '' || car.car_number.endsWith(searchQuery))
-                  .map((car, idx) => (
-                  <div key={car.id} onClick={() => setSelectedCar(car)} className="bg-white h-auto py-4 px-4 rounded-xl border border-white shadow-sm flex flex-col gap-1 animate-fadeIn active:scale-95 transition-all cursor-pointer">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center font-black text-white text-[10px]">{idx + 1}</div>
-                        <p className="text-[17px] font-black text-gray-900 leading-none">{car.car_number}</p>
-                      </div>
-                      <div className="shrink-0 text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
+                  .map((car) => (
+                  <div key={car.id} onClick={() => setSelectedCar(car)} className="bg-white p-4 rounded-2xl border border-white shadow-sm flex flex-col gap-2 animate-fadeIn active:scale-[0.98] transition-all cursor-pointer">
+                    {/* 상단: 차량번호 */}
+                    <div className="flex items-center gap-2">
+                      <p className="text-[19px] font-black text-gray-900 tracking-tight">{car.car_number}</p>
+                    </div>
+                    {/* 구분선 */}
+                    <div className="border-t border-gray-100"></div>
+                    {/* 하단: 기간 및 삭제버튼 */}
+                    <div className="flex justify-between items-center">
+                      <div className="text-[11px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg">
                         {formatAccessPeriod(car.start_date, car.end_date)}
                       </div>
+                      {user.role === 'admin' && (
+                        <button onClick={(e) => { e.stopPropagation(); deleteCar(car.id); }} className="w-8 h-8 flex items-center justify-center bg-red-50 text-red-400 rounded-xl text-sm font-bold active:scale-90 transition-all">✕</button>
+                      )}
                     </div>
-                    {user.role === 'admin' && (
-                      <div className="flex justify-end mt-1">
-                        <button onClick={(e) => { e.stopPropagation(); deleteCar(car.id); }} className="text-[10px] text-red-400 font-bold px-2 py-1 bg-red-50 rounded-lg">기록 삭제</button>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
@@ -217,11 +250,10 @@ export default function App() {
                     <input type="text" placeholder="차종" value={entry.car_type} className="w-full p-3 bg-gray-50 border-none rounded-xl" onChange={e => { const n = [...newEntries]; n[idx].car_type = e.target.value; setNewEntries(n); }} />
                     <input type="text" placeholder="차량번호" value={entry.car_number} className="w-full p-3 bg-gray-50 border-none rounded-xl" onChange={e => { const n = [...newEntries]; n[idx].car_number = e.target.value; setNewEntries(n); }} />
                   </div>
-                  {/* [Item 3] 신청자 성명 추가 */}
                   <input type="text" placeholder="신청자 성명" value={entry.applicant_name} className="w-full p-3 bg-gray-50 border-none rounded-xl text-sm font-bold" onChange={e => { const n = [...newEntries]; n[idx].applicant_name = e.target.value; setNewEntries(n); }} />
                   <div className="grid grid-cols-2 gap-3 text-xs font-bold">
-                    <div><p className="ml-1 mb-1 text-[10px] text-gray-400">시작일</p><input type="date" value={entry.start_date} className="w-full p-3 bg-gray-50 border-none rounded-xl" onChange={e => { const n = [...newEntries]; n[idx].start_date = e.target.value; setNewEntries(n); }} /></div>
-                    <div><p className="ml-1 mb-1 text-[10px] text-gray-400">종료일</p><input type="date" value={entry.end_date} className="w-full p-3 bg-gray-50 border-none rounded-xl" onChange={e => { const n = [...newEntries]; n[idx].end_date = e.target.value; setNewEntries(n); }} /></div>
+                    <div><p className="ml-1 mb-1 text-[10px] text-gray-400 font-black uppercase">시작일</p><input type="date" value={entry.start_date} className="w-full p-3 bg-gray-50 border-none rounded-xl" onChange={e => { const n = [...newEntries]; n[idx].start_date = e.target.value; setNewEntries(n); }} /></div>
+                    <div><p className="ml-1 mb-1 text-[10px] text-gray-400 font-black uppercase">종료일</p><input type="date" value={entry.end_date} className="w-full p-3 bg-gray-50 border-none rounded-xl" onChange={e => { const n = [...newEntries]; n[idx].end_date = e.target.value; setNewEntries(n); }} /></div>
                   </div>
                   <textarea placeholder="출입 사유" value={entry.purpose} className="w-full p-3 bg-gray-50 border-none rounded-xl text-sm font-bold" rows="2" onChange={e => { const n = [...newEntries]; n[idx].purpose = e.target.value; setNewEntries(n); }} />
                 </div>
@@ -243,15 +275,21 @@ export default function App() {
           )}
 
           {activeTab === 'admin' && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-black text-gray-800 px-1">승인 대기함</h2>
+            <div className="space-y-4 text-left">
+              <div className="flex justify-between items-center px-1">
+                <h2 className="text-lg font-black text-gray-800">승인 대기함</h2>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => document.getElementById('excelInput').click()} className="bg-white/70 backdrop-blur-sm px-2.5 py-0.5 rounded-full border border-gray-200 text-[10px] text-blue-600 font-black hover:bg-blue-50 transition-all">일괄 업로드</button>
+                  <input id="excelInput" type="file" accept=".xlsx, .xls" className="hidden" onChange={handleExcelUpload} />
+                </div>
+              </div>
               {allCars.filter(c => c.status === 'pending').map(car => (
                 <div key={car.id} className="bg-white p-5 rounded-[30px] shadow-sm border border-gray-100 space-y-3 animate-fadeIn">
                   <div className="flex items-end gap-2 border-b border-gray-50 pb-2"><p className="text-xl font-black text-gray-900 leading-none">{car.car_number}</p><p className="text-xs font-bold text-gray-400 mb-0.5">{car.car_type}</p></div>
-                  <div className="text-[12px] font-black text-gray-700">신청자: {car.applicant_name} | 목적: {car.purpose}</div>
+                  <div className="text-[12px] font-black text-gray-700">신청자: {car.applicant_name || '미기입'} | 사유: {car.purpose}</div>
                   <div className="flex gap-2 pt-1">
-                    <button onClick={async () => { await supabase.from('vehicles').update({status: 'approved'}).eq('id', car.id); fetchCars(); }} className="flex-1 bg-gray-900 text-white py-4 rounded-2xl font-black text-xs">승인</button>
-                    <button onClick={async () => { await supabase.from('vehicles').update({status: 'rejected'}).eq('id', car.id); fetchCars(); }} className="flex-1 bg-gray-50 text-gray-400 py-4 rounded-2xl font-black text-xs">반려</button>
+                    <button onClick={async () => { await supabase.from('vehicles').update({status: 'approved'}).eq('id', car.id); fetchCars(); }} className="flex-1 bg-gray-900 text-white py-4 rounded-2xl font-black text-xs active:scale-95 transition-all">승인</button>
+                    <button onClick={async () => { await supabase.from('vehicles').update({status: 'rejected'}).eq('id', car.id); fetchCars(); }} className="flex-1 bg-gray-50 text-gray-400 py-4 rounded-2xl font-black text-xs active:scale-95 transition-all">반려</button>
                   </div>
                 </div>
               ))}
@@ -260,9 +298,9 @@ export default function App() {
         </main>
 
         <nav className="fixed bottom-0 max-w-md w-full bg-white/95 backdrop-blur-xl border-t px-4 py-4 flex justify-around items-center rounded-t-[40px] shadow-2xl z-50">
-          <button onClick={() => setActiveTab('status')} className={`flex flex-col items-center gap-1 ${activeTab === 'status' ? "text-blue-500" : "text-gray-200"}`}><span className="text-xl">🔍</span><span className="text-[9px] font-black">현황 조회</span></button>
-          <button onClick={() => setActiveTab('apply')} className={`flex flex-col items-center gap-1 ${activeTab === 'apply' ? "text-blue-500" : "text-gray-200"}`}><span className="text-xl">📝</span><span className="text-[9px] font-black">차량 등록</span></button>
-          {user.role === 'admin' && <button onClick={() => setActiveTab('admin')} className={`flex flex-col items-center gap-1 ${activeTab === 'admin' ? "text-blue-500" : "text-gray-200"}`}><span className="text-xl">⚙️</span><span className="text-[9px] font-black">관리자</span></button>}
+          <button onClick={() => setActiveTab('status')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'status' ? "text-blue-500 scale-110" : "text-gray-200"}`}><span className="text-xl">🔍</span><span className="text-[9px] font-black">현황 조회</span></button>
+          <button onClick={() => setActiveTab('apply')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'apply' ? "text-blue-500 scale-110" : "text-gray-200"}`}><span className="text-xl">📝</span><span className="text-[9px] font-black">차량 등록</span></button>
+          {user.role === 'admin' && <button onClick={() => setActiveTab('admin')} className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'admin' ? "text-blue-500 scale-110" : "text-gray-200"}`}><span className="text-xl">⚙️</span><span className="text-[9px] font-black">관리자</span></button>}
         </nav>
       </div>
       <style>{`
